@@ -771,10 +771,10 @@ yet, and the quick start is how every new person begins.
       — claimed: Fadlalla-ai, branch test/r5.7-linux-window-and-rebuild
 - [ ] README quick start on a clean machine (Linux), still open: the website `rebuild` examples,
       a `rebuild` on a clean machine, the window on a real screen, and a Wayland session
-- [ ] A Rust build whose folder's Cargo settings move its output (`build.target-dir` or
-      `CARGO_TARGET_DIR`): the first build check didn't find the program in the project, and the
-      builder had to set `target-dir = "target"` itself. Find where the check looks, and read
-      Cargo's target directory there
+- [x] A Rust build whose folder's Cargo settings move its output (`build.target-dir` or
+      `CARGO_TARGET_DIR`): finding the program now asks `cargo metadata` where builds go when
+      `app/target` has none; checked on the snake project built under a parent folder's
+      `target-dir`, which `main` didn't find and this does
       — claimed: Fadlalla-ai, branch fix/rust-build-moved-target-dir
 - [ ] Build the new DMG on a Mac (release dry run) and look at the window once
 - [ ] #490 on macOS: a real Deep build through Claude Code with the published 0.3.0 CLI, with

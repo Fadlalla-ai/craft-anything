@@ -604,6 +604,9 @@ passing (build, a picture of the running game, the self-test playing move, eat a
 mechanics comparison stayed unverified, as there was no original to measure. That folder's own Cargo
 settings sent builds elsewhere (`build.target-dir`), so the first check didn't find the program and
 the builder set `target-dir = "target"` in the app's `.cargo/config.toml`.
+Since then the program is also looked for where `cargo metadata` says builds go: the same snake
+app built under that folder's `target-dir` (no `.cargo/config.toml` of its own) is found by `built_program`
+and `launch`, where `main` found nothing.
 Not checked: Wayland, a real screen on a clean machine, the website `rebuild` examples (they need a
 browser), Fedora or another distribution, and the app beyond its first screen.
 

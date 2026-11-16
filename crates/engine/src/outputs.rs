@@ -23,19 +23,28 @@ pub fn site_dir(app: &Path) -> Option<PathBuf> {
 /// package's; the newest build of that program wins (release or debug). Only when the manifests
 /// name no programs is it the newest executable. Build scripts and dependencies live in
 /// subfolders and are skipped, and so are stray copies (`app.running-123.exe`) of a declared one.
-/// shortcut: assumes the default target dir; read `cargo metadata` if a project ever moves it.
+/// It looks in `app/target` first; when nothing is there, it asks Cargo where builds go, since
+/// `CARGO_TARGET_DIR` or a `.cargo/config.toml` above the project can move them elsewhere.
 pub fn built_program(app: &Path) -> Option<PathBuf> {
     if !app.join("Cargo.toml").is_file() {
         return None;
     }
+    program_in(app, &app.join("target")).or_else(|| program_in(app, &target_dir_of(cargo_metadata(app))?))
+}
+
+/// The program `app` declares (see [`built_program`]) among the builds in `target`.
+fn program_in(app: &Path, target: &Path) -> Option<PathBuf> {
     let built: Vec<PathBuf> = ["release", "debug"]
         .iter()
-        .filter_map(|d| std::fs::read_dir(app.join("target").join(d)).ok())
+        .filter_map(|d| std::fs::read_dir(target.join(d)).ok())
         .flatten()
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.is_file() && is_program(p))
         .collect();
+    if built.is_empty() {
+        return None;
+    }
     let newest = |ps: &mut dyn Iterator<Item = &PathBuf>| ps.max_by_key(|p| p.metadata().and_then(|m| m.modified()).ok()).cloned();
     let stem = |p: &Path| p.file_stem().and_then(|s| s.to_str()).map(str::to_string).unwrap_or_default();
     let wanted = cargo_programs(app);
@@ -43,6 +52,23 @@ pub fn built_program(app: &Path) -> Option<PathBuf> {
         return newest(&mut built.iter());
     }
     wanted.iter().find_map(|name| newest(&mut built.iter().filter(|p| stem(p) == *name)))
+}
+
+/// `cargo metadata` for `app`, run from it: Cargo finds its configuration from the working
+/// directory, so this sees the same `.cargo/config.toml` files a build there does.
+fn cargo_metadata(app: &Path) -> craft_anything_platform::process::Process {
+    craft_anything_platform::process::Process::new("cargo")
+        .args(["metadata", "--format-version", "1", "--no-deps", "--offline"])
+        .cwd(app)
+        .timeout(std::time::Duration::from_secs(30))
+        .label("cargo metadata")
+}
+
+/// Where Cargo puts builds, from a `cargo metadata` run; none when Cargo is missing or fails.
+fn target_dir_of(run: craft_anything_platform::process::Process) -> Option<PathBuf> {
+    let out = run.run().ok().filter(|o| o.success)?;
+    let meta: serde_json::Value = serde_json::from_slice(&out.stdout).ok()?;
+    meta.get("target_directory")?.as_str().map(PathBuf::from)
 }
 
 /// Libraries that put a window on screen: a package using one makes the program to start.
@@ -260,6 +286,44 @@ pub fn is_program(p: &Path) -> bool {
 #[cfg(test)]
 mod launch_tests {
     use super::*;
+
+    #[test]
+    fn a_rust_build_moved_by_a_cargo_config_above_the_project_is_found() {
+        // A folder above the project set `build.target-dir`, so `cargo build` in app/ put the
+        // program there, and Play and the build check found nothing in app/target.
+        let d = tempfile::tempdir().unwrap();
+        let root = d.path().to_path_buf();
+        let app = root.join("app");
+        std::fs::create_dir_all(app.join("src")).unwrap();
+        std::fs::write(app.join("Cargo.toml"), "[package]\nname = \"snake\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+        std::fs::write(app.join("src/main.rs"), "fn main() {}\n").unwrap();
+        std::fs::create_dir_all(root.join(".cargo")).unwrap();
+        std::fs::write(root.join(".cargo/config.toml"), "[build]\ntarget-dir = \"elsewhere\"\n").unwrap();
+
+        let debug = root.join("elsewhere/debug");
+        std::fs::create_dir_all(&debug).unwrap();
+        // This test's own run may set CARGO_TARGET_DIR, which would win over the config.
+        let asked = target_dir_of(cargo_metadata(&app).env_remove("CARGO_TARGET_DIR").env_remove("CARGO_BUILD_TARGET_DIR"));
+        // Compared as real paths: Windows' canonical form (\\?\) isn't what Cargo prints.
+        assert_eq!(asked.as_deref().map(|p| p.canonicalize().unwrap()), Some(root.join("elsewhere").canonicalize().unwrap()));
+        let program = debug.join(if cfg!(windows) { "snake.exe" } else { "snake" });
+        std::fs::write(&program, "x").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        assert_eq!(program_in(&app, &app.join("target")), None);
+        assert_eq!(program_in(&app, &asked.unwrap()).map(|p| p.canonicalize().unwrap()), Some(program.canonicalize().unwrap()));
+    }
+
+    #[test]
+    fn no_cargo_answer_means_no_moved_target() {
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("Cargo.toml"), "[package]").unwrap();
+        assert_eq!(target_dir_of(cargo_metadata(d.path())), None, "an unreadable manifest");
+        assert_eq!(target_dir_of(craft_anything_platform::process::Process::new("no-such-cargo-here")), None, "no Cargo");
+    }
 
     #[cfg(unix)]
     #[test]
