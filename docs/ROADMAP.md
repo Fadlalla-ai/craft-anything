@@ -775,6 +775,7 @@ yet, and the quick start is how every new person begins.
       `CARGO_TARGET_DIR`): the first build check didn't find the program in the project, and the
       builder had to set `target-dir = "target"` itself. Find where the check looks, and read
       Cargo's target directory there
+      — claimed: Fadlalla-ai, branch fix/rust-build-moved-target-dir
 - [ ] Build the new DMG on a Mac (release dry run) and look at the window once
 - [ ] #490 on macOS: a real Deep build through Claude Code with the published 0.3.0 CLI, with
       2.1.179 and a current version. Windows passed; the Mac CLI was only checked to contain the
