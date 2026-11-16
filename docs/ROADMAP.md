@@ -343,7 +343,7 @@ only when it's green and a maintainer has fully reviewed it, code as well as wor
       will reach it alone. Format through `cargo xtask fmt [--check]`, which runs rustfmt on the same
       files in batches that fit, and have `ci` use it
       — claimed: FuryNocturn, branch chore/r5.2-fmt-on-windows
-- [ ] `AGENTS.md` and `docs/releasing.md` still point at `../craftrules`, which is retired
+- [x] `AGENTS.md` and `docs/releasing.md` still point at `../craftrules`, which is retired
       (craft-contrib house rule 13: don't link to it). Point the shared standards at
       storytold/craft-contrib and drop the private release playbook reference
       — claimed: Fadlalla-ai, branch docs/r5.2-craft-contrib-links
