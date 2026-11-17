@@ -79,9 +79,13 @@ integrate() {
 #   $1 our icons  $2 the user's hicolor  $3 the stamp file  $4 icons copied on this launch
 refresh_icon_cache() {
   [ -f "$2/icon-theme.cache" ] || return 0
-  sum="$( (cd "$1" && find . -type f -exec cksum {} + | sort) | cksum)" || return 0
-  if [ -z "$4" ] && [ "$(cat "$3" 2>/dev/null)" = "$sum" ]; then
-    return 0
+  sum="$( (cd "$1" && find . -type f -exec cksum {} + | LC_ALL=C sort) 2>/dev/null | cksum 2>/dev/null)" || sum=
+  mkdir -p "$(dirname "$3")" 2>/dev/null
+  if [ -z "$4" ]; then
+    # Nothing copied: refresh only for icons the stamp doesn't cover, and only when the stamp
+    # can be written, so a refresh that can't be recorded isn't repeated on every launch.
+    [ -n "$sum" ] && [ -d "$(dirname "$3")" ] && [ -w "$(dirname "$3")" ] || return 0
+    [ "$(cat "$3" 2>/dev/null)" = "$sum" ] && return 0
   fi
   done_one=
   for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
@@ -94,7 +98,7 @@ refresh_icon_cache() {
   [ -n "$done_one" ] || touch "$2" 2>/dev/null || true
   # Recorded even when neither worked (a folder we can't write): retrying every launch
   # wouldn't help.
-  mkdir -p "$(dirname "$3")" 2>/dev/null && printf '%s\n' "$sum" >"$3" 2>/dev/null || true
+  [ -n "$sum" ] && { printf '%s\n' "$sum" >"$3"; } 2>/dev/null || true
 }
 
 # The command-line tool ships beside the app but nothing puts it on PATH, and the launcher renames

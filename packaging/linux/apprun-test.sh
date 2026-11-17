@@ -112,7 +112,7 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
-# 13-20. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# 13-22. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
 # record their calls, so this runs the same with or without GTK installed.
 ICONS="$XDG_DATA_HOME/icons/hicolor"
 CACHE="$ICONS/icon-theme.cache"
@@ -200,7 +200,26 @@ launch >/dev/null || fail "launch with a linked theme folder exited non-zero"
 rm -f "$ICONS"
 rm -rf "$TMP/hicolor-real"
 
-# 20. No cache to begin with: none is made, and nothing is run.
+# 20. No cksum on the computer: icons copied under the cache still get it rebuilt; with
+#     nothing copied there's nothing to go on, so later launches leave it alone.
+other_app_cache
+mkdir -p "$TMP/no-cksum"
+printf '#!/bin/sh\nexit 127\n' >"$TMP/no-cksum/cksum"
+chmod +x "$TMP/no-cksum/cksum"
+PATH="$TMP/no-cksum:$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without cksum exited non-zero"
+PATH="$TMP/no-cksum:$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch without cksum exited non-zero"
+[[ "$(calls)" = 1 ]] || fail "without cksum: rebuilt $(calls) times, expected once"
+
+# 21. The stamp can't be written (a file where its folder would be): later launches don't
+#     rebuild the cache again and again.
+other_app_cache
+cp -R "$APPDIR/usr/share/icons/hicolor/." "$ICONS/"
+: >"$XDG_DATA_HOME/$APP_ID"
+launch >/dev/null || fail "launch with an unwritable stamp exited non-zero"
+launch >/dev/null || fail "next launch with an unwritable stamp exited non-zero"
+[[ "$(calls)" = 0 ]] || fail "rebuilt $(calls) times although the stamp can't be written"
+
+# 22. No cache to begin with: none is made, and nothing is run.
 rm -rf "$XDG_DATA_HOME" "$CALLS"
 launch >/dev/null || fail "launch without a cache exited non-zero"
 [[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"
