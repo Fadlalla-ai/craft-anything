@@ -79,6 +79,8 @@ refresh_icon_cache() {
   cache="$2/icon-theme.cache"
   [ -f "$cache" ] || return 0
   [ "$2" -nt "$cache" ] && return 0
+  # A folder we can't write (made by root, say) can't be mended: don't retry every launch.
+  [ -w "$2" ] || return 0
   newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
     if [ "$2/$rel" -nt "$cache" ]; then
       echo "$rel"
@@ -88,6 +90,13 @@ refresh_icon_cache() {
   [ -n "$newer" ] || return 0
   for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
     if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$2" >/dev/null 2>&1; then
+      # An icon dated in the future (a clock that was ahead) would stay newer than the
+      # rebuilt cache and bring this back on every launch: date it as the cache.
+      (cd "$1" && find . -type f) | while IFS= read -r rel; do
+        if [ "$2/$rel" -nt "$2/icon-theme.cache" ]; then
+          touch -r "$2/icon-theme.cache" "$2/$rel" 2>/dev/null || true
+        fi
+      done
       return 0
     fi
   done

@@ -112,7 +112,7 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
-# 13-17. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# 13-19. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
 # record their calls, so this runs the same with or without GTK installed.
 ICONS="$XDG_DATA_HOME/icons/hicolor"
 CACHE="$ICONS/icon-theme.cache"
@@ -166,7 +166,24 @@ touch -d '-2 minutes' "$ICONS"
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch over installed icons exited non-zero"
 [[ "$(cat "$CALLS" 2>/dev/null)" = "gtk-update-icon-cache -f -t -q $ICONS" ]] || fail "cache over already-installed icons not rebuilt"
 
-# 17. No cache to begin with: none is made.
+# 17. An installed icon dated in the future (a clock that was ahead): rebuilt once, not on
+#     every launch.
+other_app_cache
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch before the future-dated icon exited non-zero"
+touch -d '+1 hour' "$ICONS/scalable/apps/$APP_ID.svg"
+rm -f "$CALLS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a future-dated icon exited non-zero"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with a future-dated icon exited non-zero"
+[[ "$(wc -l <"$CALLS")" -eq 1 ]] || fail "cache rebuilt on every launch for a future-dated icon: $(cat "$CALLS")"
+
+# 18. A theme folder we can't write: the tools aren't tried (they'd fail on every launch).
+other_app_cache
+chmod a-w "$ICONS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with an unwritable theme folder exited non-zero"
+chmod u+w "$ICONS"
+[[ ! -e "$CALLS" ]] || fail "cache tools run on an unwritable theme folder: $(cat "$CALLS")"
+
+# 19. No cache to begin with: none is made.
 rm -rf "$XDG_DATA_HOME" "$CALLS"
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without a cache exited non-zero"
 [[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"
