@@ -112,8 +112,9 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
-# 13-19. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
-# record their calls, so this runs the same with or without GTK installed.
+# 13-21. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# record their calls, so this runs the same with or without GTK installed. GTK compares
+# whole seconds, so the checks below do too (seconds).
 ICONS="$XDG_DATA_HOME/icons/hicolor"
 CACHE="$ICONS/icon-theme.cache"
 TOOLS="$TMP/tools"
@@ -121,10 +122,12 @@ CALLS="$TMP/cache-calls"
 mkdir -p "$TOOLS"
 for t in gtk-update-icon-cache gtk4-update-icon-cache; do
   # shellcheck disable=SC2016 # $* and $4 belong to the stand-in, not to this script
-  printf '#!/bin/sh\necho "%s $*" >>"%s"\n[ -n "${CACHE_TOOL_FAILS:-}" ] && exit 1\n: >"$4/icon-theme.cache"\n' \
+  # Like the real tools: write the cache, then date the folder at the cache's whole second.
+  printf '#!/bin/sh\necho "%s $*" >>"%s"\n[ -n "${CACHE_TOOL_FAILS:-}" ] && exit 1\n: >"$4/icon-theme.cache"\ntouch -d "@$(stat -c %%Y "$4/icon-theme.cache")" "$4"\n' \
     "$t" "$CALLS" >"$TOOLS/$t"
   chmod +x "$TOOLS/$t"
 done
+seconds() { stat -c %Y "$1"; }
 other_app_cache() { # the other app's icons in every size folder ours uses, then its cache
   rm -rf "$XDG_DATA_HOME" "$CALLS"
   (cd "$APPDIR/usr/share/icons/hicolor" && find . -type d) | while IFS= read -r d; do
@@ -151,7 +154,7 @@ PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "second launch with a ca
 other_app_cache
 out="$(CACHE_TOOL_FAILS=1 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" y)" || fail "launch with failing cache tools exited non-zero"
 [[ "$out" = "stub: y" ]] || fail "failing cache tools: $out"
-[[ "$CACHE" -nt "$ICONS" ]] && fail "stale cache still newer than the theme folder"
+[[ "$(seconds "$ICONS")" -gt "$(seconds "$CACHE")" ]] || fail "stale cache not older than the theme folder"
 rm -f "$CALLS"
 CACHE_TOOL_FAILS=1 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with failing cache tools exited non-zero"
 [[ ! -e "$CALLS" ]] || fail "cache tools tried again although the cache is already out of date"
@@ -183,7 +186,26 @@ PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with an unwritab
 chmod u+w "$ICONS"
 [[ ! -e "$CALLS" ]] || fail "cache tools run on an unwritable theme folder: $(cat "$CALLS")"
 
-# 19. No cache to begin with: none is made.
+# 19. The folder changed in the same second as the cache was made (a size folder added
+#     right after): GTK still trusts the cache, so it is rebuilt.
+other_app_cache
+s0=$(($(date +%s) - 60))
+touch -d "@$s0.2" "$CACHE"
+touch -d "@$s0.7" "$ICONS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a same-second cache exited non-zero"
+[[ -e "$CALLS" ]] || fail "cache made in the folder's second not rebuilt"
+
+# 20. A cache dated in the future (another app's clock was ahead), our icons already in
+#     place: rebuilt once.
+other_app_cache
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch before the future-dated cache exited non-zero"
+touch -d '+1 hour' "$CACHE"
+rm -f "$CALLS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a future-dated cache exited non-zero"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with a future-dated cache exited non-zero"
+[[ "$(wc -l <"$CALLS" 2>/dev/null)" -eq 1 ]] || fail "future-dated cache not rebuilt exactly once: $(cat "$CALLS" 2>/dev/null)"
+
+# 21. No cache to begin with: none is made.
 rm -rf "$XDG_DATA_HOME" "$CALLS"
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without a cache exited non-zero"
 [[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"

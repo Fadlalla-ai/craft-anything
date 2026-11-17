@@ -73,34 +73,43 @@ integrate() {
 # folder, and copying into size folders that already exist leaves that folder's time alone:
 # the cache doesn't list our icons and menus show a generic one (#1877). So when a trusted
 # cache is older than any of our installed icons (copied on this launch or an earlier one),
-# rebuild it; without the tool, touch the folder so the cache counts as out of date and
-# the folders are read instead. Never start a cache where there is none. Best-effort.
+# or dated in the future, rebuild it; without the tool, make the folder newer so the cache
+# counts as out of date and the folders are read instead. Never start a cache where there
+# is none. Best-effort.
 refresh_icon_cache() {
   cache="$2/icon-theme.cache"
   [ -f "$cache" ] || return 0
-  [ "$2" -nt "$cache" ] && return 0
+  # GTK compares whole seconds: the cache is out of date only when the folder's second is
+  # later than the cache's.
+  cache_s="$(stat -c %Y "$cache" 2>/dev/null)" || return 0
+  dir_s="$(stat -c %Y "$2" 2>/dev/null)" || return 0
+  now_s="$(date +%s)" || return 0
+  [ "$dir_s" -gt "$cache_s" ] && return 0
   # A folder we can't write (made by root, say) can't be mended: don't retry every launch.
   [ -w "$2" ] || return 0
-  newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
-    if [ "$2/$rel" -nt "$cache" ]; then
-      echo "$rel"
-      break
-    fi
-  done)"
-  [ -n "$newer" ] || return 0
+  if [ "$cache_s" -le "$now_s" ]; then
+    newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
+      if [ "$2/$rel" -nt "$cache" ]; then
+        echo "$rel"
+        break
+      fi
+    done)"
+    [ -n "$newer" ] || return 0
+  fi
   for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
     if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$2" >/dev/null 2>&1; then
       # An icon dated in the future (a clock that was ahead) would stay newer than the
       # rebuilt cache and bring this back on every launch: date it as the cache.
       (cd "$1" && find . -type f) | while IFS= read -r rel; do
-        if [ "$2/$rel" -nt "$2/icon-theme.cache" ]; then
-          touch -r "$2/icon-theme.cache" "$2/$rel" 2>/dev/null || true
+        if [ "$2/$rel" -nt "$cache" ]; then
+          touch -r "$cache" "$2/$rel" 2>/dev/null || true
         fi
       done
       return 0
     fi
   done
-  touch "$2" 2>/dev/null || true
+  # Without the tool: put the folder a second past the cache, so GTK stops trusting it.
+  touch -d "@$((cache_s + 1))" "$2" 2>/dev/null || touch "$2" 2>/dev/null || true
 }
 
 # The command-line tool ships beside the app but nothing puts it on PATH, and the launcher renames
