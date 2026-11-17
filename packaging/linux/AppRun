@@ -81,13 +81,16 @@ refresh_icon_cache() {
   [ -f "$cache" ] || return 0
   # GTK compares whole seconds: the cache is out of date only when the folder's second is
   # later than the cache's.
-  cache_s="$(stat -c %Y "$cache" 2>/dev/null)" || return 0
-  dir_s="$(stat -c %Y "$2" 2>/dev/null)" || return 0
+  # -L: a hicolor that is a link (a dotfile manager) is judged by the folder, as GTK does.
+  cache_s="$(stat -L -c %Y "$cache" 2>/dev/null)" || return 0
+  dir_s="$(stat -L -c %Y "$2" 2>/dev/null)" || return 0
   now_s="$(date +%s)" || return 0
   [ "$dir_s" -gt "$cache_s" ] && return 0
   # A folder we can't write (made by root, say) can't be mended: don't retry every launch.
   [ -w "$2" ] || return 0
-  if [ "$cache_s" -le "$now_s" ]; then
+  # A cache over a minute ahead of this clock was made by one that was ahead; allow a
+  # minute so a home on a server whose clock runs a little fast isn't rebuilt every launch.
+  if [ "$cache_s" -le $((now_s + 60)) ]; then
     newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
       if [ "$2/$rel" -nt "$cache" ]; then
         echo "$rel"

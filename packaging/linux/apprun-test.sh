@@ -112,7 +112,7 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
-# 13-21. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# 13-22. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
 # record their calls, so this runs the same with or without GTK installed. GTK compares
 # whole seconds, so the checks below do too (seconds).
 ICONS="$XDG_DATA_HOME/icons/hicolor"
@@ -180,11 +180,14 @@ PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with a futu
 [[ "$(wc -l <"$CALLS")" -eq 1 ]] || fail "cache rebuilt on every launch for a future-dated icon: $(cat "$CALLS")"
 
 # 18. A theme folder we can't write: the tools aren't tried (they'd fail on every launch).
-other_app_cache
-chmod a-w "$ICONS"
-PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with an unwritable theme folder exited non-zero"
-chmod u+w "$ICONS"
-[[ ! -e "$CALLS" ]] || fail "cache tools run on an unwritable theme folder: $(cat "$CALLS")"
+#     Root can write anywhere, so this is checked only when not running as root.
+if [[ "$(id -u)" != 0 ]]; then
+  other_app_cache
+  chmod a-w "$ICONS"
+  PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with an unwritable theme folder exited non-zero"
+  chmod u+w "$ICONS"
+  [[ ! -e "$CALLS" ]] || fail "cache tools run on an unwritable theme folder: $(cat "$CALLS")"
+fi
 
 # 19. The folder changed in the same second as the cache was made (a size folder added
 #     right after): GTK still trusts the cache, so it is rebuilt.
@@ -205,7 +208,18 @@ PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a future-da
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with a future-dated cache exited non-zero"
 [[ "$(wc -l <"$CALLS" 2>/dev/null)" -eq 1 ]] || fail "future-dated cache not rebuilt exactly once: $(cat "$CALLS" 2>/dev/null)"
 
-# 21. No cache to begin with: none is made.
+# 21. hicolor is a link to the real folder (a dotfile manager), the link newer than the
+#     cache: judged by the folder, as GTK does, so the stale cache is rebuilt.
+other_app_cache
+mv "$ICONS" "$TMP/hicolor-real"
+ln -s "$TMP/hicolor-real" "$ICONS"
+touch -h -d '-30 seconds' "$ICONS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a linked theme folder exited non-zero"
+[[ -e "$CALLS" ]] || fail "stale cache behind a linked theme folder not rebuilt"
+rm -f "$ICONS"
+rm -rf "$TMP/hicolor-real"
+
+# 22. No cache to begin with: none is made.
 rm -rf "$XDG_DATA_HOME" "$CALLS"
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without a cache exited non-zero"
 [[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"
