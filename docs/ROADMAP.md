@@ -166,6 +166,10 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
       they don't stay open marked `fixed` — PR #1006; claimed: doubektomas,
       branch docs/r5.1-post-release-tickets. The checklist is documented; closing tickets waits
       for publication of the release containing their fixes.
+- [ ] The AppImage's icon shows after a launcher installs it (#1877): when another app has
+      already made the size folders and an icon cache in `~/.local/share/icons/hicolor`, the
+      icon `AppRun` copies there isn't in the cache, which GTK still trusts, so menus and docks
+      show a generic icon — claimed: Fadlalla-ai, branch bugfix/r5.1-apprun-icon-cache
 
 ### R5.2 Keeping contributions moving
 Owner: maintainers · Status: in progress
