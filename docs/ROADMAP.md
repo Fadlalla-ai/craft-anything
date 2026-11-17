@@ -169,9 +169,10 @@ cheapest help we can give anyone, so nothing below should hold it up for long.
 - [x] The AppImage's icon shows after a launcher installs it (#1877): when another app has
       already made the size folders and an icon cache in `~/.local/share/icons/hicolor`, the
       icon `AppRun` copies there isn't in the cache, which GTK still trusts, so menus and docks
-      show a generic icon. `AppRun` now rebuilds a cache that exists when it copied icons, or
-      touches the theme folder so the cache counts as out of date. Seen with GTK 3 and 4 on
-      Debian 13; GNOME Shell on Fedora not checked
+      show a generic icon. `AppRun` now rebuilds such a cache when it is older than any of our
+      installed icons (so earlier installs are mended too), or touches the theme folder so the
+      cache counts as out of date. Seen with GTK 3 and 4 on Debian 13; GNOME Shell on Fedora
+      not checked
       — claimed: Fadlalla-ai, branch bugfix/r5.1-apprun-icon-cache
 
 ### R5.2 Keeping contributions moving

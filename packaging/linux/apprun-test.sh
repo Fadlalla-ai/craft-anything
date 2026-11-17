@@ -112,7 +112,7 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
-# 13-16. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# 13-17. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
 # record their calls, so this runs the same with or without GTK installed.
 ICONS="$XDG_DATA_HOME/icons/hicolor"
 CACHE="$ICONS/icon-theme.cache"
@@ -152,8 +152,21 @@ other_app_cache
 out="$(CACHE_TOOL_FAILS=1 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" y)" || fail "launch with failing cache tools exited non-zero"
 [[ "$out" = "stub: y" ]] || fail "failing cache tools: $out"
 [[ "$CACHE" -nt "$ICONS" ]] && fail "stale cache still newer than the theme folder"
+rm -f "$CALLS"
+CACHE_TOOL_FAILS=1 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "next launch with failing cache tools exited non-zero"
+[[ ! -e "$CALLS" ]] || fail "cache tools tried again although the cache is already out of date"
 
-# 16. No cache to begin with: none is made.
+# 16. Our icons were installed by an earlier launch (an AppRun without this fix) under the
+#     other app's cache: nothing is copied now, but the cache is still rebuilt.
+other_app_cache
+(cd "$APPDIR/usr/share/icons/hicolor" && find . -type f) | while IFS= read -r rel; do
+  cp "$APPDIR/usr/share/icons/hicolor/$rel" "$ICONS/$rel"
+done
+touch -d '-2 minutes' "$ICONS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch over installed icons exited non-zero"
+[[ "$(cat "$CALLS" 2>/dev/null)" = "gtk-update-icon-cache -f -t -q $ICONS" ]] || fail "cache over already-installed icons not rebuilt"
+
+# 17. No cache to begin with: none is made.
 rm -rf "$XDG_DATA_HOME" "$CALLS"
 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without a cache exited non-zero"
 [[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"

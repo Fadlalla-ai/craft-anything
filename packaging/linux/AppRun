@@ -60,26 +60,38 @@ integrate() {
   src_icons="$APPDIR/usr/share/icons/hicolor"
   [ -d "$src_icons" ] || return 0
   icons="$data/icons/hicolor"
-  copied="$( (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
+  (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
     mkdir -p "$icons/$(dirname "$rel")" 2>/dev/null || continue
     if ! cmp -s "$src_icons/$rel" "$icons/$rel"; then
-      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null && echo "$rel"
+      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null || true
+    fi
+  done
+  refresh_icon_cache "$src_icons" "$icons"
+}
+
+# An icon cache another app made in hicolor is trusted while it isn't older than the theme
+# folder, and copying into size folders that already exist leaves that folder's time alone:
+# the cache doesn't list our icons and menus show a generic one (#1877). So when a trusted
+# cache is older than any of our installed icons (copied on this launch or an earlier one),
+# rebuild it; without the tool, touch the folder so the cache counts as out of date and
+# the folders are read instead. Never start a cache where there is none. Best-effort.
+refresh_icon_cache() {
+  cache="$2/icon-theme.cache"
+  [ -f "$cache" ] || return 0
+  [ "$2" -nt "$cache" ] && return 0
+  newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
+    if [ "$2/$rel" -nt "$cache" ]; then
+      echo "$rel"
+      break
     fi
   done)"
-  [ -n "$copied" ] || return 0
-
-  # An icon cache another app made here is trusted while it is newer than the theme
-  # folder, and copying into size folders that already exist leaves that folder's time
-  # alone: the cache wouldn't list our icon and menus would show a generic one (#1877).
-  # Rebuild a cache that exists (never start one); without the tool, touch the folder so
-  # the cache counts as out of date and the folders are read instead.
-  [ -f "$icons/icon-theme.cache" ] || return 0
+  [ -n "$newer" ] || return 0
   for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
-    if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$icons" >/dev/null 2>&1; then
+    if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$2" >/dev/null 2>&1; then
       return 0
     fi
   done
-  touch "$icons" 2>/dev/null || true
+  touch "$2" 2>/dev/null || true
 }
 
 # The command-line tool ships beside the app but nothing puts it on PATH, and the launcher renames
