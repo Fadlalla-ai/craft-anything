@@ -60,59 +60,41 @@ integrate() {
   src_icons="$APPDIR/usr/share/icons/hicolor"
   [ -d "$src_icons" ] || return 0
   icons="$data/icons/hicolor"
-  (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
+  copied="$( (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
     mkdir -p "$icons/$(dirname "$rel")" 2>/dev/null || continue
     if ! cmp -s "$src_icons/$rel" "$icons/$rel"; then
-      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null || true
+      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null && echo "$rel"
     fi
-  done
-  refresh_icon_cache "$src_icons" "$icons"
+  done)"
+  refresh_icon_cache "$src_icons" "$icons" "$data/$DESK_ID/icon-cache.stamp" "$copied"
 }
 
-# An icon cache another app made in hicolor is trusted while it isn't older than the theme
-# folder, and copying into size folders that already exist leaves that folder's time alone:
-# the cache doesn't list our icons and menus show a generic one (#1877). So when a trusted
-# cache is older than any of our installed icons (copied on this launch or an earlier one),
-# or dated in the future, rebuild it; without the tool, make the folder newer so the cache
-# counts as out of date and the folders are read instead. Never start a cache where there
-# is none. Best-effort.
+# An icon cache another app made in hicolor stays trusted when we copy icons into size folders
+# that already exist (the theme folder's time doesn't change), so it doesn't list our icons
+# and menus show a generic one (#1877). So when a cache is there, refresh it once for these
+# icons: when this launch copied one, or when the stamp, a checksum of the icons we ship,
+# doesn't say it was done for them (it's missing after an update from an AppRun without
+# this, or differs after our icons change). No times are compared, so no clock, link or
+# second-rounding can make this run on every launch. Never starts a cache. Best-effort.
+#   $1 our icons  $2 the user's hicolor  $3 the stamp file  $4 icons copied on this launch
 refresh_icon_cache() {
-  cache="$2/icon-theme.cache"
-  [ -f "$cache" ] || return 0
-  # GTK compares whole seconds: the cache is out of date only when the folder's second is
-  # later than the cache's.
-  # -L: a hicolor that is a link (a dotfile manager) is judged by the folder, as GTK does.
-  cache_s="$(stat -L -c %Y "$cache" 2>/dev/null)" || return 0
-  dir_s="$(stat -L -c %Y "$2" 2>/dev/null)" || return 0
-  now_s="$(date +%s)" || return 0
-  [ "$dir_s" -gt "$cache_s" ] && return 0
-  # A folder we can't write (made by root, say) can't be mended: don't retry every launch.
-  [ -w "$2" ] || return 0
-  # A cache over a minute ahead of this clock was made by one that was ahead; allow a
-  # minute so a home on a server whose clock runs a little fast isn't rebuilt every launch.
-  if [ "$cache_s" -le $((now_s + 60)) ]; then
-    newer="$( (cd "$1" && find . -type f) | while IFS= read -r rel; do
-      if [ "$2/$rel" -nt "$cache" ]; then
-        echo "$rel"
-        break
-      fi
-    done)"
-    [ -n "$newer" ] || return 0
+  [ -f "$2/icon-theme.cache" ] || return 0
+  sum="$( (cd "$1" && find . -type f -exec cksum {} + | sort) | cksum)" || return 0
+  if [ -z "$4" ] && [ "$(cat "$3" 2>/dev/null)" = "$sum" ]; then
+    return 0
   fi
+  done_one=
   for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
     if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$2" >/dev/null 2>&1; then
-      # An icon dated in the future (a clock that was ahead) would stay newer than the
-      # rebuilt cache and bring this back on every launch: date it as the cache.
-      (cd "$1" && find . -type f) | while IFS= read -r rel; do
-        if [ "$2/$rel" -nt "$cache" ]; then
-          touch -r "$cache" "$2/$rel" 2>/dev/null || true
-        fi
-      done
-      return 0
+      done_one=1
+      break
     fi
   done
-  # Without the tool: put the folder a second past the cache, so GTK stops trusting it.
-  touch -d "@$((cache_s + 1))" "$2" 2>/dev/null || touch "$2" 2>/dev/null || true
+  # Without the tool, a theme folder newer than the cache makes GTK read the folders instead.
+  [ -n "$done_one" ] || touch "$2" 2>/dev/null || true
+  # Recorded even when neither worked (a folder we can't write): retrying every launch
+  # wouldn't help.
+  mkdir -p "$(dirname "$3")" 2>/dev/null && printf '%s\n' "$sum" >"$3" 2>/dev/null || true
 }
 
 # The command-line tool ships beside the app but nothing puts it on PATH, and the launcher renames
