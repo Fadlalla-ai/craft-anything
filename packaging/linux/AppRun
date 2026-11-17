@@ -60,12 +60,26 @@ integrate() {
   src_icons="$APPDIR/usr/share/icons/hicolor"
   [ -d "$src_icons" ] || return 0
   icons="$data/icons/hicolor"
-  (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
+  copied="$( (cd "$src_icons" && find . -type f) | while IFS= read -r rel; do
     mkdir -p "$icons/$(dirname "$rel")" 2>/dev/null || continue
     if ! cmp -s "$src_icons/$rel" "$icons/$rel"; then
-      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null || true
+      cp "$src_icons/$rel" "$icons/$rel" 2>/dev/null && echo "$rel"
+    fi
+  done)"
+  [ -n "$copied" ] || return 0
+
+  # An icon cache another app made here is trusted while it is newer than the theme
+  # folder, and copying into size folders that already exist leaves that folder's time
+  # alone: the cache wouldn't list our icon and menus would show a generic one (#1877).
+  # Rebuild a cache that exists (never start one); without the tool, touch the folder so
+  # the cache counts as out of date and the folders are read instead.
+  [ -f "$icons/icon-theme.cache" ] || return 0
+  for tool in gtk-update-icon-cache gtk4-update-icon-cache; do
+    if command -v "$tool" >/dev/null 2>&1 && "$tool" -f -t -q "$icons" >/dev/null 2>&1; then
+      return 0
     fi
   done
+  touch "$icons" 2>/dev/null || true
 }
 
 # The command-line tool ships beside the app but nothing puts it on PATH, and the launcher renames

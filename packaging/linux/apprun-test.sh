@@ -112,4 +112,50 @@ out="$(ARGV0="/home/u/.local/bin/craft-anything-cli" "$APPDIR/AppRun" --version)
 out="$(ARGV0="craft-anything" "$APPDIR/AppRun" open --cli)" || fail "app launch exited non-zero"
 [[ "$out" = "stub: open --cli" ]] || fail "app launch routed to the CLI: $out"
 
+# 13-16. An icon cache another app left in hicolor (#1877). Stand-in cache tools on PATH
+# record their calls, so this runs the same with or without GTK installed.
+ICONS="$XDG_DATA_HOME/icons/hicolor"
+CACHE="$ICONS/icon-theme.cache"
+TOOLS="$TMP/tools"
+CALLS="$TMP/cache-calls"
+mkdir -p "$TOOLS"
+for t in gtk-update-icon-cache gtk4-update-icon-cache; do
+  # shellcheck disable=SC2016 # $* and $4 belong to the stand-in, not to this script
+  printf '#!/bin/sh\necho "%s $*" >>"%s"\n[ -n "${CACHE_TOOL_FAILS:-}" ] && exit 1\n: >"$4/icon-theme.cache"\n' \
+    "$t" "$CALLS" >"$TOOLS/$t"
+  chmod +x "$TOOLS/$t"
+done
+other_app_cache() { # the other app's icons in every size folder ours uses, then its cache
+  rm -rf "$XDG_DATA_HOME" "$CALLS"
+  (cd "$APPDIR/usr/share/icons/hicolor" && find . -type d) | while IFS= read -r d; do
+    mkdir -p "$ICONS/$d"
+  done
+  : >"$ICONS/scalable/apps/other-app.svg"
+  : >"$CACHE"
+  touch -d '-2 minutes' "$ICONS"
+  touch -d '-1 minute' "$CACHE"
+}
+
+# 13. Icons copied under a cache: the cache is rebuilt, once, for the theme folder.
+other_app_cache
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch with a stale cache exited non-zero"
+[[ "$(cat "$CALLS")" = "gtk-update-icon-cache -f -t -q $ICONS" ]] || fail "cache not rebuilt: $(cat "$CALLS" 2>/dev/null)"
+
+# 14. Nothing copied (a second launch): the cache is left alone.
+rm -f "$CALLS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "second launch with a cache exited non-zero"
+[[ ! -e "$CALLS" ]] || fail "cache rebuilt although no icon changed: $(cat "$CALLS")"
+
+# 15. The tools fail (or aren't there): the theme folder is made newer than the cache, so
+#     the stale cache isn't trusted, and the app still starts.
+other_app_cache
+out="$(CACHE_TOOL_FAILS=1 PATH="$TOOLS:$PATH" "$APPDIR/AppRun" y)" || fail "launch with failing cache tools exited non-zero"
+[[ "$out" = "stub: y" ]] || fail "failing cache tools: $out"
+[[ "$CACHE" -nt "$ICONS" ]] && fail "stale cache still newer than the theme folder"
+
+# 16. No cache to begin with: none is made.
+rm -rf "$XDG_DATA_HOME" "$CALLS"
+PATH="$TOOLS:$PATH" "$APPDIR/AppRun" >/dev/null || fail "launch without a cache exited non-zero"
+[[ ! -e "$CALLS" && ! -e "$CACHE" ]] || fail "a cache was made where there was none"
+
 echo "AppRun desktop integration and CLI routing ok"
