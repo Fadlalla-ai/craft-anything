@@ -871,7 +871,7 @@ yet, and the quick start is how every new person begins.
       — claimed: Fadlalla-ai, branch fix/cargo-target-dir-at-start
 - [x] The file lookup (the Project screen's Play and "Pin this build", a saved Live pin) misses a
       build only Cargo places: a workspace member's, `CARGO_BUILD_TARGET_DIR`, and
-      `$CARGO_HOME/config.toml`'s `build.target-dir`. Read those from the files and the
+      `build.target-dir` in Cargo's home config. Read those from the files and the
       environment too, starting no process; a folder outside the app still gives only a program
       whose record names the app's sources. Done, with Cargo's rules it doesn't follow listed in
       STATUS

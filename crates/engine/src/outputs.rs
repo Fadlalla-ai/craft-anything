@@ -31,8 +31,8 @@ pub fn built_program(app: &Path) -> Option<PathBuf> {
 
 /// What the environment says about where Cargo builds: `CARGO_TARGET_DIR`,
 /// `CARGO_BUILD_TARGET_DIR` and Cargo's home folder (`CARGO_HOME`, else `~/.cargo`), whose
-/// `config.toml` applies to every project. Given separately so a test doesn't depend on the
-/// process environment.
+/// `config.toml` (or older `config`) applies when no config closer to the project sets
+/// `build.target-dir`. Given separately so a test doesn't depend on the process environment.
 #[derive(Debug, Clone, Default)]
 struct CargoEnv {
     target_dir: Option<std::ffi::OsString>,
@@ -238,7 +238,8 @@ fn inside_app(app: &Path, path: &Path) -> bool {
 ///
 /// This approximates Cargo's own rules: what it misses leaves the program unfound, as before.
 /// Every folder outside `app` only supplies a program whose build record names `app`'s sources
-/// ([`program_in`]), so an extra folder can't make another project's program count. Reading the
+/// ([`program_in`]), so an extra folder can't make another project's program count (except one
+/// whose record lists a file of `app`'s, as a project depending on `app` by path). Reading the
 /// settings starts no program; looking in these folders reads build records too, so callers
 /// that read often do it on a worker.
 fn cargo_target_dirs(app: &Path, env: &CargoEnv) -> Vec<PathBuf> {
@@ -276,7 +277,7 @@ fn has_workspace_table(manifest: &Path) -> bool {
 }
 
 /// A settings file (Cargo.toml, Cargo's config) as TOML: none when it isn't a file, is over
-/// 1 MiB, or can't be read or parsed. A pipe or a huge file never blocks the lookup.
+/// 1 MiB, or can't be read or parsed, so a pipe or a huge file there doesn't block this read.
 fn small_toml(file: &Path) -> Option<toml::Table> {
     use std::io::Read;
     const MAX_SETTINGS: u64 = 1 << 20;
@@ -863,6 +864,23 @@ mod target_dir_tests {
         std::fs::remove_dir(inner.join("Cargo.toml")).unwrap();
         std::fs::write(inner.join("Cargo.toml"), "[package]\nname = 'x'\n").unwrap();
         assert_eq!(cargo_target_dirs(&app, &CargoEnv::default()), vec![d.path().join("target"), app.join("target")], "a package without [workspace] isn't one");
+    }
+
+    /// Play asks Cargo (`launch_now`): a program in a folder only Cargo's answer names (here one no
+    /// setting the files read points at) is found that way, and only with its record.
+    #[test]
+    fn cargos_answer_is_looked_in_when_the_files_name_no_such_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let app = d.path().join("app");
+        package(&app, "snake");
+        let only_cargo = d.path().join("only-cargo-knows");
+        let program = only_cargo.join("debug").join(exe("snake"));
+        std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+        make_program(&program);
+        assert_eq!(built_program_in(&app, &CargoEnv::default()), None, "the files don't name that folder");
+        assert_eq!(built_program_from(&app, Some(only_cargo.clone()), &CargoEnv::default()), None, "no record: not the app's");
+        dep_info(&program, &[&app.join("src/main.rs")]);
+        assert_eq!(built_program_from(&app, Some(only_cargo), &CargoEnv::default()), Some(program), "Cargo's answer is looked in");
     }
 
     #[test]
