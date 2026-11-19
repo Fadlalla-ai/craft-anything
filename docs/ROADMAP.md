@@ -868,6 +868,13 @@ yet, and the quick start is how every new person begins.
       and a parent workspace's `target/`; the Project screen keeps the file lookup. Checked on a
       workspace member and a `CARGO_BUILD_TARGET_DIR` build that the file lookup doesn't find
       — claimed: Fadlalla-ai, branch fix/cargo-target-dir-at-start
+- [x] The file lookup (the Project screen's Play and "Pin this build", a saved Live pin) misses a
+      build only Cargo places: a workspace member's, `CARGO_BUILD_TARGET_DIR`, and
+      `$CARGO_HOME/config.toml`'s `build.target-dir`. Read those from the files and the
+      environment too, starting no process; a folder outside the app still gives only a program
+      whose record names the app's sources. Done, with Cargo's rules it doesn't follow listed in
+      STATUS
+      — claimed: Fadlalla-ai, branch bugfix/play-finds-cargo-placed-builds
 - [x] With `CARGO_TARGET_DIR` set (a build folder shared by several projects), a program of the
       same name built by another project there is taken for the project's own: Play and a new pin
       can start or copy it, and a pin made before programs were recorded looks outside its copy.
