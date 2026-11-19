@@ -824,12 +824,16 @@ yet, and the quick start is how every new person begins.
       Ghidra's setup's Java and `engines_install jadx`: Java source of a class came back (before:
       JADX exited 1)
       — claimed: Fadlalla-ai, branch bugfix/r5.7-jadx-uses-managed-java
-- [x] A Ghidra folder setting that names a file, such as the `/usr/bin/ghidra` start script, is listed as
+- [x] A Ghidra folder setting that names a file, such as a `/usr/bin/ghidra` start script, is listed as
       found by `engines_list`, but Deep mode then quietly decompiles with the built-in lifter instead;
       refuse it, or follow the script to its Ghidra folder. A file is now run only when it is the
-      headless launcher or a script that runs it; a link or start script is followed to its Ghidra
-      folder; anything else isn't listed as found. Live in Debian 13 with Ghidra 12.1.4 laid out as
-      Arch-based packages do: `/usr/bin/ghidra` and a linked `ghidraRun` now decompile with Ghidra
+      headless launcher or a short text file that names it (whether it runs it isn't checked); any
+      other file in a Ghidra folder, or in a folder directly inside one, gives that folder's
+      launcher, links followed (the file itself isn't checked); a start script elsewhere is followed
+      to the Ghidra folder it names; anything else isn't listed as found.
+      Live in Debian 13 with Ghidra 12.1.4, a `/usr/bin/ghidra` start script we wrote and a linked
+      `ghidraRun`: both now decompile with Ghidra. Arch's own package (12.2) links `/usr/bin/ghidra`
+      to `ghidraRun` instead; tried later, it is found with each setting (#85)
       — claimed: Fadlalla-ai, branch bugfix/r5.7-ghidra-setting-names-a-file
 - [x] Two cases left by the line above (review of #1949): a wrapper script in Ghidra's own folder
       that runs the launcher was passed over for that folder's launcher, and a start script naming a
