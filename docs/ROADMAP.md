@@ -866,7 +866,8 @@ yet, and the quick start is how every new person begins.
       build's run and screenshot checks): `launch_now` runs `cargo metadata` and looks in its
       `target_directory` first, which covers `$CARGO_HOME/config.toml`, `CARGO_BUILD_TARGET_DIR`
       and a parent workspace's `target/`; the Project screen keeps the file lookup. Checked on a
-      workspace member and a `CARGO_BUILD_TARGET_DIR` build that the file lookup doesn't find
+      workspace member and a `CARGO_BUILD_TARGET_DIR` build that the file lookup doesn't find (it
+      does since the line below)
       — claimed: Fadlalla-ai, branch fix/cargo-target-dir-at-start
 - [x] The file lookup (the Project screen's Play and "Pin this build", a saved Live pin) misses a
       build only Cargo places: a workspace member's, `CARGO_BUILD_TARGET_DIR`, and

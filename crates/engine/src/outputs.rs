@@ -272,14 +272,20 @@ fn cargo_target_dirs(app: &Path, env: &CargoEnv) -> Vec<PathBuf> {
 /// Whether a Cargo.toml declares a workspace (`[workspace]`). One that isn't a file, is over
 /// 1 MiB, or can't be read or parsed doesn't.
 fn has_workspace_table(manifest: &Path) -> bool {
+    small_toml(manifest).is_some_and(|m| m.contains_key("workspace"))
+}
+
+/// A settings file (Cargo.toml, Cargo's config) as TOML: none when it isn't a file, is over
+/// 1 MiB, or can't be read or parsed. A pipe or a huge file never blocks the lookup.
+fn small_toml(file: &Path) -> Option<toml::Table> {
     use std::io::Read;
-    const MAX_MANIFEST: u64 = 1 << 20;
-    if !std::fs::metadata(manifest).is_ok_and(|m| m.is_file() && m.len() <= MAX_MANIFEST) {
-        return false;
+    const MAX_SETTINGS: u64 = 1 << 20;
+    if !std::fs::metadata(file).is_ok_and(|m| m.is_file() && m.len() <= MAX_SETTINGS) {
+        return None;
     }
     let mut text = String::new();
-    let read = std::fs::File::open(manifest).and_then(|f| f.take(MAX_MANIFEST).read_to_string(&mut text));
-    read.is_ok() && text.parse::<toml::Table>().is_ok_and(|m| m.contains_key("workspace"))
+    std::fs::File::open(file).and_then(|f| f.take(MAX_SETTINGS).read_to_string(&mut text)).ok()?;
+    text.parse().ok()
 }
 
 /// A relative Cargo target dir from `base`, with `.` and `..` resolved, or the absolute one as it is.
@@ -290,12 +296,11 @@ fn resolved(base: &Path, dir: PathBuf) -> PathBuf {
 
 /// `build.target-dir` from a folder's Cargo config, when it sets one. Cargo prefers the legacy
 /// `config` when both exist; a `config` without the key (or one that can't be read or parsed)
-/// doesn't fall through to `config.toml` in the same folder.
+/// doesn't fall through to `config.toml` in the same folder. A file over 1 MiB isn't read.
 fn cargo_config_target(cargo_dir: &Path) -> Option<PathBuf> {
     let legacy = cargo_dir.join("config");
     let file = if legacy.is_file() { legacy } else { cargo_dir.join("config.toml") };
-    let text = std::fs::read_to_string(file).ok()?;
-    let config: toml::Table = text.parse().ok()?;
+    let config = small_toml(&file)?;
     config.get("build")?.get("target-dir")?.as_str().map(PathBuf::from)
 }
 
@@ -763,6 +768,12 @@ mod target_dir_tests {
         dep_info(&program, &[&app.join("src/main.rs")]);
         assert_eq!(built_program_in(&app, &env), Some(program.clone()), "the file lookup finds it");
         assert_eq!(built_program_in(&app, &CargoEnv::default()), None, "only through the variable");
+        let elsewhere = d.path().join("elsewhere/src/main.rs");
+        std::fs::create_dir_all(elsewhere.parent().unwrap()).unwrap();
+        std::fs::write(&elsewhere, "fn main() {}\n").unwrap();
+        dep_info(&program, &[&elsewhere]);
+        assert_eq!(built_program_in(&app, &env), None, "another project's program of that name there (the decoy)");
+        dep_info(&program, &[&app.join("src/main.rs")]);
         std::fs::create_dir_all(app.join("rel-env")).unwrap();
         let env = CargoEnv { build_target_dir: Some("rel-env".into()), ..CargoEnv::default() };
         assert_eq!(real(asked(&app, &[("CARGO_BUILD_TARGET_DIR", Path::new("rel-env"))])), real(first(&env)));
@@ -784,6 +795,10 @@ mod target_dir_tests {
         assert_eq!(real(asked(&app, &[("CARGO_HOME", &home)])), real(Some(d.path().join("home-rel"))));
         assert_eq!(first(&env), Some(d.path().join("home-rel")));
         // The older name, `config`, is read too and wins over config.toml, as for a project's.
+        std::fs::write(home.join("config"), "[build]\ntarget-dir = 'legacy-rel'\n").unwrap();
+        std::fs::create_dir_all(d.path().join("legacy-rel")).unwrap();
+        assert_eq!(real(asked(&app, &[("CARGO_HOME", &home)])), real(Some(d.path().join("legacy-rel"))));
+        assert_eq!(first(&env), Some(d.path().join("legacy-rel")));
         std::fs::write(home.join("config"), format!("[build]\ntarget-dir = '{}'\n", from_home.display())).unwrap();
         assert_eq!(real(asked(&app, &[("CARGO_HOME", &home)])), real(Some(from_home.clone())));
         assert_eq!(first(&env), Some(from_home.clone()));
