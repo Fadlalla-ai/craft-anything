@@ -20,8 +20,9 @@ pub fn site_dir(app: &Path) -> Option<PathBuf> {
 /// The program a Rust build in `app` made, so a finished game or app can be started. A workspace
 /// often builds several (the app, its CLI, tools), so the project's own Cargo.toml files decide:
 /// its `default-run`, then a program whose package uses a window or game library, then the root
-/// package's; the newest build of that program wins (release or debug) in the first target
-/// directory that has it. Only when the manifests name no programs is it the newest executable.
+/// package's; the newest build of that program wins (release or debug) across the target
+/// directories. Only when the manifests name no programs is it the newest executable, from the
+/// first target directory inside `app` that has one.
 /// Build scripts and dependencies live in subfolders and are skipped, and so are stray copies
 /// (`app.running-123.exe`) of a declared one.
 pub fn built_program(app: &Path) -> Option<PathBuf> {
@@ -45,8 +46,12 @@ impl CargoEnv {
         CargoEnv {
             target_dir: set("CARGO_TARGET_DIR"),
             build_target_dir: set("CARGO_BUILD_TARGET_DIR"),
-            // A relative CARGO_HOME is relative to wherever Cargo runs; it isn't followed.
-            home: set("CARGO_HOME").map(PathBuf::from).filter(|h| h.is_absolute()).or_else(|| dirs::home_dir().map(|h| h.join(".cargo"))),
+            // A relative CARGO_HOME is relative to wherever Cargo runs; it isn't followed, and
+            // ~/.cargo isn't read in its place. Unset, Cargo's home is ~/.cargo.
+            home: match set("CARGO_HOME") {
+                Some(h) => Some(PathBuf::from(h)).filter(|h| h.is_absolute()),
+                None => dirs::home_dir().map(|h| h.join(".cargo")),
+            },
         }
     }
 
@@ -68,8 +73,9 @@ fn built_program_in(app: &Path, env: &CargoEnv) -> Option<PathBuf> {
 /// build's run and screenshot checks). Cargo itself is asked where it builds (`cargo metadata`,
 /// run from the project), which also covers the cases the files read for [`built_program`] only
 /// approximate (see [`cargo_target_dirs`]). Its answer is looked in first, then the same folders
-/// as [`built_program`]. It starts a process, so reads nobody asked for (the Project screen, a
-/// saved Live pin) use [`built_program`]; without Cargo it is the same.
+/// as [`built_program`]. It starts a process, so the Project screen's reads, which nobody asked
+/// for, use [`built_program`]; a saved Live pin does too, through [`launch`]. Without Cargo it is
+/// the same.
 pub fn built_program_now(app: &Path) -> Option<PathBuf> {
     if !app.join("Cargo.toml").is_file() {
         return None;
@@ -263,10 +269,17 @@ fn cargo_target_dirs(app: &Path, env: &CargoEnv) -> Vec<PathBuf> {
     dirs
 }
 
-/// Whether a Cargo.toml declares a workspace (`[workspace]`). One that can't be read or parsed
-/// doesn't.
+/// Whether a Cargo.toml declares a workspace (`[workspace]`). One that isn't a file, is over
+/// 1 MiB, or can't be read or parsed doesn't.
 fn has_workspace_table(manifest: &Path) -> bool {
-    std::fs::read_to_string(manifest).ok().and_then(|t| t.parse::<toml::Table>().ok()).is_some_and(|m| m.contains_key("workspace"))
+    use std::io::Read;
+    const MAX_MANIFEST: u64 = 1 << 20;
+    if !std::fs::metadata(manifest).is_ok_and(|m| m.is_file() && m.len() <= MAX_MANIFEST) {
+        return false;
+    }
+    let mut text = String::new();
+    let read = std::fs::File::open(manifest).and_then(|f| f.take(MAX_MANIFEST).read_to_string(&mut text));
+    read.is_ok() && text.parse::<toml::Table>().is_ok_and(|m| m.contains_key("workspace"))
 }
 
 /// A relative Cargo target dir from `base`, with `.` and `..` resolved, or the absolute one as it is.
@@ -829,6 +842,10 @@ mod target_dir_tests {
         assert_eq!(dirs, vec![inner.join("target"), app.join("target")]);
         std::fs::write(inner.join("Cargo.toml"), "[workspace\n").unwrap();
         assert_eq!(cargo_target_dirs(&app, &CargoEnv::default()), vec![d.path().join("target"), app.join("target")], "an unparsable manifest is skipped");
+        std::fs::remove_file(inner.join("Cargo.toml")).unwrap();
+        std::fs::create_dir(inner.join("Cargo.toml")).unwrap();
+        assert_eq!(cargo_target_dirs(&app, &CargoEnv::default()), vec![d.path().join("target"), app.join("target")], "a folder named Cargo.toml isn't read");
+        std::fs::remove_dir(inner.join("Cargo.toml")).unwrap();
         std::fs::write(inner.join("Cargo.toml"), "[package]\nname = 'x'\n").unwrap();
         assert_eq!(cargo_target_dirs(&app, &CargoEnv::default()), vec![d.path().join("target"), app.join("target")], "a package without [workspace] isn't one");
     }
