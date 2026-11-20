@@ -133,9 +133,6 @@ impl CraftApp {
 
     /// A project from [`Self::start_make`] was made: its build starts.
     pub(crate) fn created(&mut self, ws: Workspace, request: String, backend: String, pictures: Option<String>, attached: bool, notice: Option<String>) {
-        if let Some(n) = notice {
-            self.toast(n, false);
-        }
         if let Some(e) = pictures {
             self.toast(format!("{} {}", tr("Couldn't add the pictures:"), e), true);
         }
@@ -171,6 +168,12 @@ impl CraftApp {
             self.state.feed = vec![FeedItem::User(UserItem::Text(request.clone()))];
         }
         self.start_run(ws, Some(backend), message.clone(), message, Vec::new());
+        // Said after the start, which may say the build waits its turn: a confirmation takes the
+        // place of the one before it, so a queued build's line carries the notice too.
+        if let Some(n) = notice {
+            let text = if self.runs.position(&root).is_some() { format!("{n} {}", tr("Another build is working, so this one waits its turn.")) } else { n };
+            self.toast(text, false);
+        }
         // Keep an edited draft; clear it only once this request is running or queued.
         if self.state.make.request.trim() == request && (self.runs.is_running(&root) || self.runs.position(&root).is_some()) {
             self.state.make = MakeDraft::default();

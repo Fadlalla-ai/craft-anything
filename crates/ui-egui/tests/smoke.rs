@@ -3088,6 +3088,51 @@ fn a_game_naming_three_js_that_cant_be_made_says_nothing_about_three_js() {
     assert!(!h.state().state.toasts.iter().any(|(text, _)| text.starts_with("Your request names")), "{:?}", h.state().state.toasts);
 }
 
+/// A game naming Three.js that waits for another build still says it's built with Three.js: the
+/// line that says it waits its turn carries the notice, rather than taking its place.
+#[test]
+fn a_queued_game_naming_three_js_says_both_that_it_waits_and_what_its_built_with() {
+    use craft_anything_ai::rebuild::StandIns;
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
+    use craft_anything_engines::game::{Builder, Installed, Inventory};
+    let d = tempfile::tempdir().unwrap();
+    let busy = Workspace::create(d.path(), "Alpha", "A notes app", TargetRef::None).unwrap();
+    let runs = StandIns::new();
+    let (dir, r) = (d.path().to_path_buf(), runs.clone());
+    let mut h = harness_sized(egui::vec2(1280.0, 1120.0), move || {
+        let mut a = stand_in_app(dir, &r);
+        a.game_engines = Some(Inventory {
+            engines: vec![Installed { builder: Builder::Unity, version: "6000.0.23f1".into(), program: "Unity.exe".into() }],
+            ..Default::default()
+        });
+        a
+    });
+    h.run_steps(2);
+    // Another build takes the one place Settings allows (stand_in_app builds one at a time).
+    h.state_mut().open_workspace(busy.clone());
+    h.state_mut().follow_up(Some("Add tags".into()));
+    h.run_steps(2);
+    assert_eq!(runs.started(), std::slice::from_ref(&busy.root));
+    h.state_mut().state.screen = craft_anything_ui_egui::state::Screen::Home;
+    let make = &mut h.state_mut().state.make;
+    make.url.clear();
+    make.target = TargetRef::None;
+    make.request = "Make a space shooter game using Three.js".into();
+    h.run_steps(3);
+    h.get_by_label("Start").click();
+    assert!(wait(&mut h, |a| a.creating.is_none() && a.workspace.as_ref().is_some_and(|w| w.root != busy.root)), "made on a worker");
+    let root = h.state().workspace.as_ref().unwrap().root.clone();
+    assert_eq!(h.state().runs.position(&root), Some(1), "it waits its turn");
+    assert!(
+        h.state().state.toasts.iter().any(|(text, err)| !*err && text.starts_with("Your request names Three.js") && text.contains("waits its turn")),
+        "{:?}",
+        h.state().state.toasts
+    );
+    h.state_mut().pause();
+    assert!(runs.finish(&busy.root));
+    h.run_steps(2);
+}
+
 /// A folder that became a project after it was picked keeps its own stack when a game naming
 /// Three.js is started there: the worker finds the project, so nothing is skipped, recorded or said.
 #[test]
