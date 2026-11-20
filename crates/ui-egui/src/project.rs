@@ -78,14 +78,11 @@ impl CraftApp {
         // Games are built with an engine, unless the request names another way to build; one that
         // isn't here yet is got first, then this starts.
         let game = make::is_game(&self.kinds, &draft);
-        // A folder that already holds a project keeps what the person set there (one file check, on
-        // Start, not while drawing). Make never holds such a folder (picking one opens it), so this
-        // only differs from what Make said when a project appeared there after the pick.
-        let attached = draft.folder.as_deref().is_some_and(rebuild::project::has_project);
         // A game naming a technology from the stack table's list is built with it rather than its
-        // default engine, whatever is installed, as Make said (R2.7). Not a project that's there
-        // already: its stack stays as it was.
-        let skipped = if game && !attached { crate::engine_ui::skipped(&self.kinds, &draft) } else { None };
+        // default engine, whatever is installed, as Make said (R2.7). A folder that already holds
+        // a project keeps its stack instead: that's found on the worker below, which drops the
+        // skip then.
+        let skipped = if game { crate::engine_ui::skipped(&self.kinds, &draft) } else { None };
         let engine = if game && skipped.is_none() { crate::engine_ui::chosen(&self.kinds, &draft) } else { None };
         if let Some(b) = engine
             && !self.game_engines.as_ref().is_some_and(|i| i.ready(b))
@@ -108,9 +105,8 @@ impl CraftApp {
         let own = draft.folder.as_deref().and_then(Path::file_name).filter(|_| draft.mine);
         let name = own.map_or_else(|| suggest_name(&request, &target), |n| n.to_string_lossy().into_owned());
         let (projects_dir, budget, generate) = (self.settings.projects_dir(), self.settings.assets.budget(), game && draft.generate_assets);
-        if let Some(s) = &skipped {
-            self.toast(crate::engine_ui::skipped_started(s), false);
-        }
+        // Said once the project is made, and only for a new one (see `created`).
+        let notice = skipped.as_ref().map(crate::engine_ui::skipped_started);
         // The folder, its records and copies of the pictures are written on a worker (a slow or
         // network drive must not freeze the window); `created` starts the build.
         self.creating = Some(self.jobs.spawn(tr("Create the project"), false, move |_| {
@@ -130,12 +126,16 @@ impl CraftApp {
                 s.journal(&ws).map_err(|e| e.for_people())?;
             }
             let pictures = ws.add_references(&draft.pictures).err().map(|e| e.message);
-            Ok(Done::Created { ws: Box::new(ws), request, backend, pictures, attached })
+            let notice = notice.filter(|_| !attached);
+            Ok(Done::Created { ws: Box::new(ws), request, backend, pictures, attached, notice })
         }));
     }
 
     /// A project from [`Self::start_make`] was made: its build starts.
-    pub(crate) fn created(&mut self, ws: Workspace, request: String, backend: String, pictures: Option<String>, attached: bool) {
+    pub(crate) fn created(&mut self, ws: Workspace, request: String, backend: String, pictures: Option<String>, attached: bool, notice: Option<String>) {
+        if let Some(n) = notice {
+            self.toast(n, false);
+        }
         if let Some(e) = pictures {
             self.toast(format!("{} {}", tr("Couldn't add the pictures:"), e), true);
         }
@@ -2601,7 +2601,7 @@ mod tests {
         let ws = Workspace::create(d.path(), "Notes", "A notes app", TargetRef::None).unwrap();
         let mut app = crate::demo::app(crate::demo::engine(craft_anything_engine::Mode::Beginner, true));
         assert!(app.projects.is_empty());
-        app.created(ws.clone(), "A notes app".into(), "test-backend".into(), None, false);
+        app.created(ws.clone(), "A notes app".into(), "test-backend".into(), None, false, None);
         assert!(!app.projects.is_empty(), "project is added to app.projects immediately");
         assert_eq!(app.projects[0].root, ws.root);
     }
@@ -2649,7 +2649,7 @@ mod tests {
         cfg.upsert(BackendEntry { config: local, options: Default::default() });
         app.hub.save_config(&cfg).unwrap();
         // "Off" isn't a backend: the attached project must use the builder it saved instead.
-        app.created(ws.clone(), "add a jump".into(), "Off".into(), None, true);
+        app.created(ws.clone(), "add a jump".into(), "Off".into(), None, true, None);
         assert!(app.state.feed.iter().any(|i| matches!(i, FeedItem::User(u) if u.text() == "earlier message")), "the saved feed is kept: {:?}", app.state.feed);
         assert!(app.state.feed.iter().any(|i| matches!(i, FeedItem::User(u) if u.text() == "add a jump")), "the new request is appended: {:?}", app.state.feed);
         let saved_feed = craft_anything_ai::rebuild::feed::load(&ws);

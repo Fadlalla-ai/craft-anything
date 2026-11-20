@@ -3054,6 +3054,84 @@ fn a_game_started_from_make_naming_three_js_is_built_with_it_and_journals_the_sk
     let entries: Vec<String> = journal::days(&inv).iter().flat_map(|day| journal::read_day(&inv, day)).map(|v| v.to_string()).collect();
     let skips: Vec<&String> = entries.iter().filter(|e| e.contains(r#""action":"engine_skipped""#)).collect();
     assert!(skips.len() == 1 && skips[0].contains(r#""named":"Three.js""#), "{entries:?}");
+    assert!(
+        h.state().state.toasts.iter().any(|(text, err)| !*err && text.starts_with("Your request names Three.js") && text.contains("start a new project")),
+        "the project made, the skip is said"
+    );
+    h.state_mut().pause();
+    assert!(runs.finish(&root));
+    h.run_steps(2);
+}
+
+/// A game naming Three.js whose project can't be made says why, and not that it's built with
+/// Three.js: that notice waits for the project.
+#[test]
+fn a_game_naming_three_js_that_cant_be_made_says_nothing_about_three_js() {
+    use craft_anything_ai::rebuild::StandIns;
+    use craft_anything_engine::workspace::TargetRef;
+    let d = tempfile::tempdir().unwrap();
+    // The projects folder is a file, so no project can be made in it.
+    let projects = d.path().join("projects");
+    std::fs::write(&projects, "not a folder").unwrap();
+    let runs = StandIns::new();
+    let r = runs.clone();
+    let mut h = harness_sized(egui::vec2(1280.0, 1120.0), move || stand_in_app(projects, &r));
+    h.run_steps(2);
+    let make = &mut h.state_mut().state.make;
+    make.url.clear();
+    make.target = TargetRef::None;
+    make.request = "Make a space shooter game using Three.js".into();
+    h.run_steps(3);
+    h.get_by_label("Start").click();
+    assert!(wait(&mut h, |a| a.creating.is_none() && a.state.toasts.iter().any(|(_, err)| *err)), "the failure is said");
+    assert!(h.state().workspace.is_none(), "nothing was made");
+    assert!(!h.state().state.toasts.iter().any(|(text, _)| text.starts_with("Your request names")), "{:?}", h.state().state.toasts);
+}
+
+/// A folder that became a project after it was picked keeps its own stack when a game naming
+/// Three.js is started there: the worker finds the project, so nothing is skipped, recorded or said.
+#[test]
+fn a_game_naming_three_js_started_in_a_folder_that_holds_a_project_keeps_its_stack() {
+    use craft_anything_ai::rebuild::StandIns;
+    use craft_anything_engine::journal;
+    use craft_anything_engine::workspace::{ExistingFiles, TargetRef, Workspace};
+    use craft_anything_engines::game::{Builder, Installed, Inventory};
+    let d = tempfile::tempdir().unwrap();
+    let mine = tempfile::tempdir().unwrap();
+    let mut ws = Workspace::create_at(mine.path(), "Shooter", "A space shooter game", TargetRef::None, None).unwrap();
+    ws.manifest.stack = "Godot".into();
+    ws.save().unwrap();
+    let runs = StandIns::new();
+    let (dir, r) = (d.path().to_path_buf(), runs.clone());
+    let mut h = harness_sized(egui::vec2(1280.0, 1120.0), move || {
+        let mut a = stand_in_app(dir, &r);
+        a.game_engines = Some(Inventory {
+            engines: vec![Installed { builder: Builder::Unity, version: "6000.0.23f1".into(), program: "Unity.exe".into() }],
+            ..Default::default()
+        });
+        a
+    });
+    h.run_steps(2);
+    let make = &mut h.state_mut().state.make;
+    make.url.clear();
+    make.target = TargetRef::None;
+    make.mine = true;
+    // Picking a folder that holds a project opens it, so Make holds this one only when the project
+    // appeared there after the pick.
+    make.folder = Some(mine.path().to_path_buf());
+    make.existing = Some(ExistingFiles::Edit);
+    make.request = "Make a space shooter game using Three.js".into();
+    h.run_steps(3);
+    h.get_by_label("Start").click();
+    assert!(wait(&mut h, |a| a.creating.is_none() && a.workspace.is_some()), "opened on a worker");
+    assert!(h.state().state.modal.is_none(), "no engine window");
+    let root = h.state().workspace.as_ref().unwrap().root.clone();
+    assert_eq!(root, mine.path(), "the folder's own project");
+    assert_eq!(Workspace::open(&root).unwrap().manifest.stack, "Godot", "its stack stays");
+    let inv = Workspace::open(&root).unwrap().investigation_dir();
+    let entries: Vec<String> = journal::days(&inv).iter().flat_map(|day| journal::read_day(&inv, day)).map(|v| v.to_string()).collect();
+    assert!(!entries.iter().any(|e| e.contains(r#""action":"engine_skipped""#)), "{entries:?}");
+    assert!(!h.state().state.toasts.iter().any(|(text, _)| text.starts_with("Your request names")), "no skip is said");
     h.state_mut().pause();
     assert!(runs.finish(&root));
     h.run_steps(2);
