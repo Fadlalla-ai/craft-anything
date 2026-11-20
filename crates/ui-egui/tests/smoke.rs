@@ -3094,7 +3094,7 @@ fn a_game_naming_three_js_that_cant_be_made_says_nothing_about_three_js() {
 fn a_game_naming_three_js_started_in_a_folder_that_holds_a_project_keeps_its_stack() {
     use craft_anything_ai::rebuild::StandIns;
     use craft_anything_engine::journal;
-    use craft_anything_engine::workspace::{ExistingFiles, TargetRef, Workspace};
+    use craft_anything_engine::workspace::{TargetRef, Workspace};
     use craft_anything_engines::game::{Builder, Installed, Inventory};
     let d = tempfile::tempdir().unwrap();
     let mine = tempfile::tempdir().unwrap();
@@ -3115,11 +3115,10 @@ fn a_game_naming_three_js_started_in_a_folder_that_holds_a_project_keeps_its_sta
     let make = &mut h.state_mut().state.make;
     make.url.clear();
     make.target = TargetRef::None;
-    make.mine = true;
-    // Picking a folder that holds a project opens it, so Make holds this one only when the project
-    // appeared there after the pick.
+    // Make's own folder, where a new project goes. Picking a folder that holds a project opens it,
+    // so Make holds this one only when the project appeared there after the pick; Start then
+    // works out the skip, and the worker, finding the project, drops it.
     make.folder = Some(mine.path().to_path_buf());
-    make.existing = Some(ExistingFiles::Edit);
     make.request = "Make a space shooter game using Three.js".into();
     h.run_steps(3);
     h.get_by_label("Start").click();
